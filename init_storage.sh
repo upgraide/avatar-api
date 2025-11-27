@@ -20,13 +20,16 @@ echo "=========================================="
 echo ""
 
 # Check environment
-STORAGE_PATH="${MODEL_STORAGE_PATH:-/workspace/models}"
+STORAGE_PATH="${MODEL_STORAGE_PATH:-/runpod-volume/models}"
 
 if [ ! -d "$STORAGE_PATH" ]; then
     echo "✗ ERROR: Storage path not found: $STORAGE_PATH"
     echo ""
-    echo "Make sure RunPod persistent volume is mounted at /workspace"
-    echo "and that $STORAGE_PATH directory exists (mkdir -p $STORAGE_PATH)"
+    echo "Make sure RunPod persistent volume is mounted and MODEL_STORAGE_PATH is set correctly:"
+    echo "  - Regular Pods: Use /workspace/models (set MODEL_STORAGE_PATH=/workspace/models)"
+    echo "  - Serverless: Uses /runpod-volume/models (default)"
+    echo ""
+    echo "Create the directory if needed: mkdir -p \$STORAGE_PATH"
     exit 1
 fi
 
