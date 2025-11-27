@@ -38,19 +38,35 @@ cd avatar-api
 
 ### 1.2 Build Docker Image
 
+**Option A: GitHub Actions (Recommended)**
+
+This method uses GitHub's cloud runners to build the x86 image, avoiding local architecture and resource constraints.
+
+**Setup (One-time):**
+
+1. **Configure Docker Hub secrets in GitHub:**
+   - Go to your GitHub repository → Settings → Secrets and variables → Actions
+   - Click "New repository secret"
+   - Add `DOCKER_USERNAME` with your Docker Hub username
+   - Add `DOCKER_PASSWORD` with your Docker Hub password or access token
+
+2. **Trigger the build:**
+   - Option 1 (Automatic): Push to `main` or `master` branch triggers build automatically
+   - Option 2 (Manual): Go to Actions → "Build and Push Docker Image" → Run workflow
+
+**Build takes 10-15 minutes.** Check the Actions tab for progress.
+
+**Option B: Local Build (x86 machines only)**
+
+For ARM Macs or machines with limited RAM, use Option A instead.
+
 ```bash
-# Build the container
+# Build the container (requires x86 architecture and >8GB RAM)
 docker build -t avatar-api:v1.0 .
 
 # Verify image size (should be <5GB without models)
 docker images | grep avatar-api
-```
 
-**Expected image size:** ~4-5GB (base CUDA image + dependencies, models NOT included)
-
-### 1.3 Push to Docker Hub
-
-```bash
 # Tag for your Docker Hub account
 docker tag avatar-api:v1.0 yourusername/avatar-api:v1.0
 
@@ -60,6 +76,8 @@ docker login
 # Push image
 docker push yourusername/avatar-api:v1.0
 ```
+
+**Expected image size:** ~4-5GB (base CUDA image + dependencies, models NOT included)
 
 **⏱️ Time required:** 5-10 minutes (depends on internet speed)
 

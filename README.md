@@ -48,20 +48,33 @@ See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for complete step-by-step instructions.
 
 **TL;DR:**
 
-```bash
-# 1. Build container
-docker build -t avatar-api:v1.0 .
+**Recommended: GitHub Actions (works on any machine)**
 
-# 2. Push to registry
-docker tag avatar-api:v1.0 yourusername/avatar-api:v1.0
-docker push yourusername/avatar-api:v1.0
+```bash
+# 1. Configure GitHub secrets (one-time setup):
+#    - DOCKER_USERNAME: your Docker Hub username
+#    - DOCKER_PASSWORD: your Docker Hub password/token
+
+# 2. Trigger build via GitHub Actions:
+#    Go to Actions → "Build and Push Docker Image" → Run workflow
+#    Or push to main/master branch (auto-triggers)
 
 # 3. Deploy to RunPod Serverless
-# - Create persistent volume (50GB)
-# - Create serverless endpoint with L40S GPU
-# - Attach volume at /runpod-volume
-# - Set HF_TOKEN environment variable
-# - Deploy and wait for first model download (~5-10 min)
+#    - Create persistent volume (50GB)
+#    - Create serverless endpoint with L40S GPU
+#    - Use image: upgraide/avatar-api:v1.0
+#    - Attach volume at /runpod-volume
+#    - Set HF_TOKEN environment variable
+#    - Deploy and wait for first model download (~5-10 min)
+```
+
+**Alternative: Local build (x86 machines only)**
+
+```bash
+docker build -t avatar-api:v1.0 .
+docker tag avatar-api:v1.0 yourusername/avatar-api:v1.0
+docker push yourusername/avatar-api:v1.0
+# Then deploy to RunPod as above
 ```
 
 ## Architecture
