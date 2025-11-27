@@ -1,6 +1,6 @@
 # Story 1.1: RunPod Foundation & Model Setup
 
-**Status:** Review
+**Status:** Blocked - Awaiting Manual Deployment
 
 ---
 
@@ -296,19 +296,46 @@ Story 1.1 establishes the foundational infrastructure for the Avatar API by cont
 - **Subsequent startups:** <60s (cached models)
 - **Cost:** $4.30/month storage + $0.00019/second GPU usage
 
-**Next Steps:**
+**Next Steps - Manual Deployment Required:**
 
-Phase 3 and Phase 4 tasks require actual RunPod account and deployment:
-- Create RunPod account with payment method
-- Set up 50GB persistent volume
-- Push container to Docker Hub
-- Deploy serverless endpoint with L40S GPU
-- Validate end-to-end video generation
-- Test cold start performance with cached models
+**✅ Completed:**
+- Code pushed to GitHub: https://github.com/upgraide/avatar-api
+- RunPod persistent volume created: `fx8d814g9m` (50GB)
+- Repository made public for RunPod access
 
-These are **manual deployment steps** to be performed by the user following docs/DEPLOYMENT.md.
+**⏳ Remaining (Next Dev Session):**
 
-Story 1.2 will build the FastAPI wrapper on top of this validated foundation.
+Phase 3 & 4 require container build and RunPod deployment:
+
+1. **Build Docker Image:**
+   - Option A: Use GitHub Actions to build on cloud runners (recommended for ARM Macs)
+   - Option B: Build locally on x86 machine with sufficient RAM (>16GB)
+   - Push to Docker Hub: `upgraide/avatar-api:v1.0`
+
+2. **Deploy to RunPod Serverless:**
+   - Navigate to: https://www.runpod.io/console/serverless
+   - Create endpoint with L40S GPU (48GB VRAM)
+   - Container: `upgraide/avatar-api:v1.0`
+   - Attach volume: `fx8d814g9m` at `/runpod-volume`
+   - Set env var: `HF_TOKEN=<your-huggingface-token>`
+   - Configure: Min=0, Max=5, Timeout=600s
+
+3. **Validate End-to-End:**
+   - Wait for first model download (~10 min)
+   - SSH into container
+   - Test InfiniteTalk generation (see docs/DEPLOYMENT.md Step 5)
+   - Verify 720p output and 30-120s generation time
+   - Test cold start performance (<60s with cached models)
+
+**Why Blocked:**
+- Docker build failed on ARM Mac (limited RAM: 7.6GB)
+- Container build requires x86 architecture or GitHub Actions
+- End-to-end validation requires actual GPU deployment
+
+**Unblock Instructions:**
+Follow docs/DEPLOYMENT.md from "Step 1.2: Build Docker Image" onward. All prerequisite accounts and storage are configured.
+
+Story 1.2 (FastAPI API) can begin once AC #2-4 are validated via manual deployment.
 
 ### Files Modified
 
