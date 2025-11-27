@@ -20,12 +20,13 @@ echo "=========================================="
 echo ""
 
 # Check environment
-STORAGE_PATH="${MODEL_STORAGE_PATH:-/runpod-volume/models}"
+STORAGE_PATH="${MODEL_STORAGE_PATH:-/workspace/models}"
 
 if [ ! -d "$STORAGE_PATH" ]; then
     echo "✗ ERROR: Storage path not found: $STORAGE_PATH"
     echo ""
-    echo "Make sure RunPod persistent volume is mounted at /runpod-volume"
+    echo "Make sure RunPod persistent volume is mounted at /workspace"
+    echo "and that $STORAGE_PATH directory exists (mkdir -p $STORAGE_PATH)"
     exit 1
 fi
 

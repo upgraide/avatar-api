@@ -24,7 +24,7 @@ class ModelManager:
     """
     Manages downloading and caching of ML models for InfiniteTalk.
 
-    Models are downloaded to RunPod persistent storage (/runpod-volume/models/)
+    Models are downloaded to RunPod persistent storage (/workspace/models/)
     to avoid re-downloading on every container restart.
     """
 
@@ -50,12 +50,12 @@ class ModelManager:
         }
     }
 
-    def __init__(self, storage_path: str = "/runpod-volume/models"):
+    def __init__(self, storage_path: str = "/workspace/models"):
         """
         Initialize ModelManager.
 
         Args:
-            storage_path: Path to persistent storage directory (default: /runpod-volume/models)
+            storage_path: Path to persistent storage directory (default: /workspace/models)
         """
         self.storage_path = Path(storage_path)
         self.hf_token = os.getenv("HF_TOKEN")
@@ -277,7 +277,7 @@ def main():
     logger.info("="*60)
 
     # Get storage path from environment or use default
-    storage_path = os.getenv("MODEL_STORAGE_PATH", "/runpod-volume/models")
+    storage_path = os.getenv("MODEL_STORAGE_PATH", "/workspace/models")
 
     # Initialize manager
     manager = ModelManager(storage_path)
