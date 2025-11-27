@@ -1,6 +1,6 @@
 # Story 1.1: RunPod Foundation & Model Setup
 
-**Status:** Blocked - Awaiting Manual Deployment
+**Status:** In Progress - Architecture Fixed, Awaiting Deployment Validation
 
 ---
 
@@ -286,6 +286,59 @@ Claude Sonnet 4.5 (claude-sonnet-4-5-20250929)
 - GitHub Actions cache reduces rebuild time from 10min → ~5min
 - Image tags: both versioned (v1.0) and latest for flexibility
 
+---
+
+**Session 2025-11-27: Architecture Fix - Init/Runtime Separation**
+
+**Context:** RunPod deployment revealed critical architecture flaw:
+- Models failed to download properly (only 6KB instead of 43GB)
+- Multiple workers racing to download concurrently
+- Startup downloads violated serverless best practices (<60s cold start requirement)
+
+**Root Cause Analysis:**
+- Container startup.sh attempted to download 43GB on every worker start
+- No separation between one-time init and runtime verification
+- Race conditions when multiple serverless workers scaled up
+- Startup failures cascaded (download fail → container crash → restart loop)
+
+**Solution: Init Job Pattern (Industry Best Practice)**
+
+Separated initialization from runtime following ML deployment patterns:
+
+1. **One-Time Init** (`init_storage.sh`)
+   - Run ONCE in temporary pod before deploying workers
+   - Downloads all models to persistent storage
+   - Creates `.storage_ready` marker
+   - Idempotent - safe to re-run
+
+2. **Fast Runtime** (`startup.sh` + `core/models.py`)
+   - Workers only VERIFY models exist (no downloads)
+   - Fail fast with clear error if storage not initialized
+   - <60s cold start (PyTorch install + verification)
+   - Graceful error messages point to init step
+
+**Files Created:**
+- `init_storage.sh` - One-time storage initialization script
+
+**Files Modified:**
+- `core/models.py` - Added `verify_models()` method (verify-only, no download)
+- `startup.sh` - Changed from download to verify-only
+- `Dockerfile` - Added init_storage.sh to container
+- `docs/DEPLOYMENT.md` - Added Step 3: Initialize Persistent Storage (one-time)
+
+**Architecture Benefits:**
+- ✅ <60s worker cold starts (vs 10-15min with downloads)
+- ✅ No race conditions (init runs once, workers just verify)
+- ✅ Clear separation of concerns (init vs runtime)
+- ✅ Explicit failure modes with actionable error messages
+- ✅ Follows serverless and ML deployment best practices
+
+**Next Steps:**
+1. Rebuild Docker image with new architecture
+2. Run init_storage.sh once in temporary pod
+3. Re-deploy serverless endpoint
+4. Validate <60s cold start and video generation (AC #2-4)
+
 ### Completion Notes
 
 **Implementation Summary:**
@@ -339,26 +392,34 @@ Story 1.1 establishes the foundational infrastructure for the Avatar API by cont
 - Code pushed to GitHub: https://github.com/upgraide/avatar-api
 - RunPod persistent volume created: `fx8d814g9m` (50GB)
 - Repository made public for RunPod access
+- Architecture refactored: Init/Runtime separation implemented
 
 **⏳ Remaining (Next Dev Session):**
 
-Phase 3 & 4 require container build and RunPod deployment:
+Phase 3 & 4 require container rebuild, storage init, and deployment:
 
-1. **Build Docker Image:**
-   - Option A: Use GitHub Actions to build on cloud runners (recommended for ARM Macs)
-   - Option B: Build locally on x86 machine with sufficient RAM (>16GB)
+1. **Rebuild Docker Image** (with new architecture):
+   - Option A: Trigger GitHub Actions workflow (recommended)
+   - Option B: Build locally on x86 machine
    - Push to Docker Hub: `upgraide/avatar-api:v1.0`
 
-2. **Deploy to RunPod Serverless:**
+2. **Initialize Persistent Storage** (ONE-TIME):
+   - Create temporary RunPod pod with volume `fx8d814g9m` attached
+   - SSH into pod and run `init_storage.sh`
+   - Set HF_TOKEN and run model downloads (~10-15 min)
+   - Verify models downloaded (should be ~43GB total)
+   - Terminate temp pod
+
+3. **Deploy to RunPod Serverless:**
    - Navigate to: https://www.runpod.io/console/serverless
    - Create endpoint with L40S GPU (48GB VRAM)
    - Container: `upgraide/avatar-api:v1.0`
    - Attach volume: `fx8d814g9m` at `/runpod-volume`
-   - Set env var: `HF_TOKEN=<your-huggingface-token>`
+   - Set env var: `MODEL_STORAGE_PATH=/runpod-volume/models`
    - Configure: Min=0, Max=5, Timeout=600s
 
-3. **Validate End-to-End:**
-   - Wait for first model download (~10 min)
+4. **Validate End-to-End:**
+   - Trigger worker startup (<60s cold start expected)
    - SSH into container
    - Test InfiniteTalk generation (see docs/DEPLOYMENT.md Step 5)
    - Verify 720p output and 30-120s generation time
@@ -387,18 +448,21 @@ Story 1.2 (FastAPI API) can begin once AC #2-4 are validated via manual deployme
 **Created:**
 - `Dockerfile` - Multi-stage container definition with CUDA 12.1 base
 - `requirements.txt` - Python dependencies (InfiniteTalk + core libs)
-- `startup.sh` - Container entrypoint script
-- `core/models.py` - ModelManager class for downloads
+- `startup.sh` - Container entrypoint script (refactored: verify-only in Session 2)
+- `core/models.py` - ModelManager class (refactored: added verify_models() in Session 2)
+- `init_storage.sh` - ONE-TIME storage initialization script (Session 2)
 - `.env.example` - Environment variable template
 - `.gitignore` - Exclude env, models, cache, outputs
-- `docs/DEPLOYMENT.md` - Complete RunPod deployment guide
+- `docs/DEPLOYMENT.md` - Complete RunPod deployment guide (updated with init step in Session 2)
 - `docs/GITHUB_ACTIONS_SETUP.md` - GitHub Actions setup guide with troubleshooting
 - `.github/workflows/docker-build.yml` - Automated x86 Docker build workflow
 - `README.md` - Project overview and architecture
 
-**Modified:**
-- `docs/DEPLOYMENT.md` - Added GitHub Actions as recommended build option
-- `README.md` - Updated deployment section to prioritize GitHub Actions
+**Modified (Session 2 - Architecture Fix):**
+- `Dockerfile` - Added init_storage.sh to image
+- `core/models.py` - Added verify_models() method, updated main() to verify-only
+- `startup.sh` - Changed from download to verify-only with clear error messages
+- `docs/DEPLOYMENT.md` - Added Step 3: Initialize Persistent Storage (one-time setup)
 
 **Deleted:**
 - None

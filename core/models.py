@@ -193,6 +193,64 @@ class ModelManager:
 
         return model_paths
 
+    def verify_models(self) -> Dict[str, Path]:
+        """
+        Verify all required models exist in storage.
+
+        This is a runtime check that does NOT download models.
+        Use init_storage.sh to download models before deployment.
+
+        Returns:
+            Dict mapping model keys to their local paths
+
+        Raises:
+            RuntimeError: If any required model is missing
+        """
+        logger.info("="*60)
+        logger.info("VERIFYING MODEL AVAILABILITY")
+        logger.info("="*60)
+
+        # Check for ready marker
+        ready_marker = self.storage_path / ".storage_ready"
+        if ready_marker.exists():
+            logger.info(f"✓ Storage initialized: {ready_marker.read_text().strip()}")
+        else:
+            logger.warning("⚠ No .storage_ready marker found")
+
+        model_paths = {}
+        missing_models = []
+
+        # Check each model
+        for model_key, config in self.MODELS.items():
+            model_path = self.storage_path / config["local_dir"]
+
+            # Check if directory exists and has files
+            if model_path.exists() and any(model_path.iterdir()):
+                file_count = len(list(model_path.iterdir()))
+                logger.info(f"✓ {config['description']}: {file_count} files")
+                model_paths[model_key] = model_path
+            else:
+                logger.error(f"✗ {config['description']}: NOT FOUND")
+                missing_models.append(model_key)
+
+        if missing_models:
+            logger.error("\n" + "="*60)
+            logger.error("MODELS MISSING - STORAGE NOT INITIALIZED")
+            logger.error("="*60)
+            logger.error(f"\nMissing models: {', '.join(missing_models)}")
+            logger.error("\nTo fix this:")
+            logger.error("  1. SSH into a RunPod pod with persistent volume mounted")
+            logger.error("  2. Set HF_TOKEN environment variable")
+            logger.error("  3. Run: bash /app/init_storage.sh")
+            logger.error("\nSee docs/DEPLOYMENT.md for detailed instructions")
+            raise RuntimeError(f"{len(missing_models)} required model(s) missing from storage")
+
+        logger.info("\n" + "="*60)
+        logger.info("✅ ALL MODELS VERIFIED")
+        logger.info("="*60)
+
+        return model_paths
+
     def get_model_paths(self) -> Dict[str, Path]:
         """
         Get paths to all models (assumes they are already downloaded).
@@ -208,20 +266,25 @@ class ModelManager:
 
 def main():
     """
-    CLI entry point for model download.
+    CLI entry point for model verification.
+
+    This script is called by startup.sh to verify models exist.
+    It does NOT download models - use init_storage.sh for that.
+
     Usage: python core/models.py
     """
-    logger.info("Avatar API - Model Download Manager")
+    logger.info("Avatar API - Model Verification")
     logger.info("="*60)
 
     # Get storage path from environment or use default
     storage_path = os.getenv("MODEL_STORAGE_PATH", "/runpod-volume/models")
 
-    # Initialize manager and download models
+    # Initialize manager
     manager = ModelManager(storage_path)
 
     try:
-        model_paths = manager.ensure_models_downloaded()
+        # Verify models exist (does not download)
+        model_paths = manager.verify_models()
 
         logger.info("\n✓ All models ready!")
         logger.info("Model paths:")
@@ -230,8 +293,13 @@ def main():
 
         return 0
 
+    except RuntimeError as e:
+        # Expected error when models are missing
+        logger.error(f"\n✗ Verification failed: {e}")
+        return 1
     except Exception as e:
-        logger.error(f"\n✗ Model download failed: {e}")
+        # Unexpected error
+        logger.error(f"\n✗ Unexpected error: {e}")
         return 1
 
 

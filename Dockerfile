@@ -40,9 +40,10 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY core/ ./core/
 COPY InfiniteTalk/ ./InfiniteTalk/
 COPY startup.sh ./
+COPY init_storage.sh ./
 
-# Make startup script executable
-RUN chmod +x startup.sh
+# Make scripts executable
+RUN chmod +x startup.sh init_storage.sh
 
 # Create directories for persistent storage mount point
 RUN mkdir -p /runpod-volume/models

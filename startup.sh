@@ -1,6 +1,9 @@
 #!/bin/bash
 # Avatar API - Container Startup Script
-# Checks for models in persistent storage and downloads if missing
+# Verifies models exist in persistent storage (does NOT download)
+#
+# IMPORTANT: Run init_storage.sh ONCE before deploying workers
+# See docs/DEPLOYMENT.md for setup instructions
 
 set -e  # Exit on error
 
@@ -22,21 +25,34 @@ pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https
 echo "✓ PyTorch installed"
 echo ""
 
-# Run model download check
-echo "Checking model availability..."
+# Verify models exist (does NOT download)
+echo "Verifying model availability..."
 python /app/core/models.py
 
 if [ $? -ne 0 ]; then
-    echo "✗ Model download failed!"
+    echo ""
+    echo "=========================================="
+    echo "✗ STARTUP FAILED - MODELS NOT FOUND"
+    echo "=========================================="
+    echo ""
+    echo "Storage has not been initialized."
+    echo ""
+    echo "To fix this:"
+    echo "  1. SSH into this pod or another pod with the same persistent volume"
+    echo "  2. Set HF_TOKEN environment variable"
+    echo "  3. Run: bash /app/init_storage.sh"
+    echo ""
+    echo "See docs/DEPLOYMENT.md for detailed instructions."
+    echo ""
     exit 1
 fi
 
 echo ""
 echo "=========================================="
-echo "Container Ready"
+echo "✅ Container Ready"
 echo "=========================================="
 echo ""
-echo "Models are available at: ${MODEL_STORAGE_PATH:-/runpod-volume/models}"
+echo "Models verified at: ${MODEL_STORAGE_PATH:-/runpod-volume/models}"
 echo ""
 echo "To test InfiniteTalk generation manually:"
 echo "  cd /app/InfiniteTalk"

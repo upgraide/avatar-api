@@ -104,9 +104,134 @@ After creation, note:
 - Volume ID (e.g., `vol_xxxxx`)
 - Region (must match your serverless endpoint)
 
-## Step 3: Deploy to RunPod Serverless
+## Step 3: Initialize Persistent Storage (One-Time Setup)
 
-### 3.1 Create Serverless Endpoint
+**CRITICAL:** This step must be completed ONCE before deploying workers.
+
+Models (~43GB) must be downloaded to persistent storage before worker containers can start. This init step ensures workers start in <60s instead of waiting 10-15 minutes for downloads.
+
+### 3.1 Create Temporary Init Pod
+
+1. Navigate to [RunPod Pods](https://www.runpod.io/console/pods)
+2. Click **"+ Deploy"**
+3. Select **GPU Pod** (Community Cloud is fine - we just need temporary access)
+4. Configure:
+   - **GPU Type:** Any (cheapest option - we're just downloading files)
+   - **Template:** PyTorch or similar (needs Python + pip)
+   - **Disk:** 10GB (minimum)
+   - **Volume:** Attach your `avatar-api-models` volume at `/runpod-volume`
+
+5. Click **Deploy** and wait for pod to start
+
+**⏱️ Time required:** 2-3 minutes for pod startup
+
+### 3.2 Get Init Script
+
+You have two options to get the init script:
+
+**Option A: From your local repository (simpler)**
+
+```bash
+# Copy script from your local clone to the pod
+scp -P <PORT> -i ~/.ssh/id_ed25519 init_storage.sh root@<POD_IP>:/tmp/
+```
+
+**Option B: From GitHub repository**
+
+SSH into your pod first:
+
+```bash
+# SSH into pod (get connection details from RunPod console)
+ssh root@<POD_IP> -p <PORT> -i ~/.ssh/id_ed25519
+
+# Download init script from your repository
+wget https://raw.githubusercontent.com/yourusername/avatar-api/main/init_storage.sh -O /tmp/init_storage.sh
+chmod +x /tmp/init_storage.sh
+```
+
+### 3.3 Run Storage Initialization
+
+SSH into the pod (if not already connected):
+
+```bash
+ssh root@<POD_IP> -p <PORT> -i ~/.ssh/id_ed25519
+```
+
+Then run the initialization:
+
+```bash
+# Set your HuggingFace token
+export HF_TOKEN="your-huggingface-token-here"
+
+# Set storage path (should match volume mount)
+export MODEL_STORAGE_PATH="/runpod-volume/models"
+
+# Run initialization script
+bash /tmp/init_storage.sh
+```
+
+**⏱️ Time required:** 10-15 minutes (downloads ~43GB)
+
+Expected output:
+
+```
+==========================================
+Avatar API - Storage Initialization
+==========================================
+
+Configuration:
+  Storage path: /runpod-volume/models
+  HF_TOKEN: hf_xxxxx... (hidden)
+
+Starting model downloads...
+This will take 10-15 minutes on first run.
+
+============================================================
+Model: Wan 2.1 Image-to-Video 14B model
+  Repo: Wan-AI/Wan2.1-I2V-14B-480P
+  Size: ~40GB
+  Destination: /runpod-volume/models/Wan2.1-I2V-14B-480P
+
+  Downloading... (this may take several minutes)
+✓ Downloaded in 298.3s (5.0 min)
+
+[... similar output for other 2 models ...]
+
+==========================================
+✅ Storage Initialization Complete
+==========================================
+
+Models are ready at: /runpod-volume/models
+Ready marker created: /runpod-volume/models/.storage_ready
+```
+
+### 3.4 Verify and Clean Up
+
+```bash
+# Verify models downloaded correctly
+ls -lh /runpod-volume/models/
+du -sh /runpod-volume/models/*
+
+# Expected output:
+# 40GB  /runpod-volume/models/Wan2.1-I2V-14B-480P
+# 1.0GB /runpod-volume/models/chinese-wav2vec2-base
+# 2.0GB /runpod-volume/models/InfiniteTalk
+
+# Exit SSH
+exit
+```
+
+**Terminate the init pod** - you no longer need it. The models are now in persistent storage.
+
+1. Go to RunPod Pods console
+2. Find your init pod
+3. Click **Terminate**
+
+**💰 Cost:** ~$0.10-0.20 for 15 minutes of GPU time (one-time cost)
+
+## Step 4: Deploy to RunPod Serverless
+
+### 4.1 Create Serverless Endpoint
 
 1. Navigate to [RunPod Serverless](https://www.runpod.io/console/serverless)
 2. Click **"+ New Endpoint"**
@@ -115,41 +240,40 @@ After creation, note:
    - **GPU Type:** Select **L40S** (48GB VRAM)
    - **Container Image:** `yourusername/avatar-api:v1.0`
 
-### 3.2 Configure Environment Variables
+### 4.2 Configure Environment Variables
 
 In the **Environment Variables** section, add:
 
 ```bash
-HF_TOKEN=your-huggingface-token-here
 MODEL_STORAGE_PATH=/runpod-volume/models
 ```
 
-**Important:** Replace `your-huggingface-token-here` with your actual HuggingFace token.
+**Note:** HF_TOKEN is no longer needed at runtime since models are pre-downloaded in Step 3.
 
-### 3.3 Attach Persistent Volume
+### 4.3 Attach Persistent Volume
 
 In the **Storage** section:
 
 1. Toggle **"Enable Network Volume"**
-2. Select your volume: `avatar-api-models`
+2. Select your volume: `avatar-api-models` (the one you initialized in Step 3)
 3. **Mount Path:** `/runpod-volume` (must match exactly)
 
-### 3.4 Configure Scaling
+### 4.4 Configure Scaling
 
 In the **Scaling** section:
 
 - **Min Workers:** `0` (scale-to-zero for cost savings)
 - **Max Workers:** `5` (adjust based on expected load)
 - **Idle Timeout:** `300` seconds (5 minutes)
-- **Execution Timeout:** `600` seconds (10 minutes)
+- **Execution Timeout:** `600` seconds (10 minutes - includes model verification + generation)
 
 **Rationale:**
 
 - Min=0 ensures zero cost when idle
 - Max=5 prevents runaway costs
-- 600s timeout allows for model loading + generation
+- 600s timeout allows for PyTorch install + model verification + generation
 
-### 3.5 Finalize and Deploy
+### 4.5 Finalize and Deploy
 
 1. Review all settings
 2. Click **"Deploy"**
@@ -157,45 +281,57 @@ In the **Scaling** section:
 
 **⏱️ Deployment time:** ~2-3 minutes
 
-## Step 4: First Startup - Model Download
+## Step 5: Verify Fast Startup
 
-On the **first container startup**, models will download automatically (one-time cost).
+Since models are pre-downloaded, workers should start quickly.
 
-### 4.1 Trigger First Startup
+### 5.1 Trigger First Worker
 
 RunPod will auto-scale to 1 worker on first request. To trigger manually:
 
 1. Go to your endpoint dashboard
 2. Click **"Test Endpoint"** or wait for natural traffic
 
-### 4.2 Monitor Model Download
+### 5.2 Monitor Container Startup
 
 1. Click **"Logs"** tab in endpoint dashboard
-2. Watch for model download progress:
+2. Watch for quick startup:
 
 ```
-Checking model availability...
-3 model(s) need downloading...
-Total download size: ~43GB
-This may take 5-10 minutes on first startup.
+==========================================
+Avatar API - Container Starting
+==========================================
 
-Downloading 'wan2.1-i2v-14b' (Wan 2.1 Image-to-Video 14B model)
-  Repo: Wan-AI/Wan2.1-I2V-14B-480P
-  Size: ~40GB
-  Destination: /runpod-volume/models/Wan2.1-I2V-14B-480P
-  Attempt 1/3...
-  ✓ Downloaded 'wan2.1-i2v-14b' in 298.3s
+Environment:
+  Python version: Python 3.10.x
+  Storage path: /runpod-volume/models
 
-[... similar output for other models ...]
+Installing PyTorch with CUDA 12.1...
+✓ PyTorch installed
 
-✓ All models ready!
-Container Ready
+Verifying model availability...
+============================================================
+VERIFYING MODEL AVAILABILITY
+============================================================
+✓ Storage initialized: 2025-11-27T10:30:00Z
+✓ Wan 2.1 Image-to-Video 14B model: 42 files
+✓ Chinese Wav2Vec2 audio encoder: 15 files
+✓ InfiniteTalk weights and audio conditioning: 8 files
+
+============================================================
+✅ ALL MODELS VERIFIED
+============================================================
+
+✅ Container Ready
+
+Models verified at: /runpod-volume/models
 ```
 
-**⏱️ First startup:** 5-10 minutes (model download)
-**Subsequent startups:** <60 seconds (models cached)
+**⏱️ Cold start time:** <60 seconds (PyTorch install + model verification)
 
-### 4.3 Verify Model Download
+**If you see errors about missing models**, storage initialization (Step 3) was not completed correctly. Return to Step 3 and re-run `init_storage.sh`.
+
+### 5.3 Verify Model Paths
 
 Check persistent volume contents:
 
