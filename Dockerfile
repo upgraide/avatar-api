@@ -1,8 +1,8 @@
-# Avatar API - Lightweight Docker Container for RunPod Serverless
-# Base: NVIDIA CUDA 12.1 + cuDNN 8 for GPU acceleration
+# Avatar API - Docker Container for RunPod Serverless
+# Base: NVIDIA CUDA 12.1 + cuDNN 8 (devel for flash-attn compilation)
 # Models: Downloaded at runtime to persistent storage (not baked in)
 
-FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+FROM nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -40,10 +40,13 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # 2. xformers with CUDA 12.1
 RUN pip install --no-cache-dir -U xformers==0.0.28 --index-url https://download.pytorch.org/whl/cu121
 
-# 3. flash-attn
-RUN pip install --no-cache-dir flash_attn==2.7.4.post1
+# 3. Build dependencies for flash-attn
+RUN pip install --no-cache-dir ninja psutil packaging wheel
 
-# 4. InfiniteTalk dependencies (includes misaki, ninja, psutil, packaging, wheel, soundfile, librosa, etc.)
+# 4. flash-attn (requires torch + build deps, use --no-build-isolation)
+RUN pip install --no-cache-dir --no-build-isolation flash_attn==2.7.4.post1
+
+# 5. InfiniteTalk dependencies (includes misaki, soundfile, librosa, etc.)
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
