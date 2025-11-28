@@ -35,11 +35,11 @@ COPY requirements.txt ./
 # 1. Upgrade pip
 RUN pip install --no-cache-dir --upgrade pip
 
-# 2. PyTorch with CUDA 12.1
-RUN pip install --no-cache-dir torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cu121
+# 2. PyTorch 2.5.1 with CUDA 12.1 (REQUIRED: xfuser needs torch.distributed.tensor.experimental)
+RUN pip install --no-cache-dir torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121
 
-# 3. xformers with CUDA 12.1
-RUN pip install --no-cache-dir -U xformers==0.0.28 --index-url https://download.pytorch.org/whl/cu121
+# 3. xformers 0.0.29.post1 with CUDA 12.1 (compatible with PyTorch 2.5.1)
+RUN pip install --no-cache-dir xformers==0.0.29.post1 --index-url https://download.pytorch.org/whl/cu121
 
 # 4. Build dependencies for flash-attn
 RUN pip install --no-cache-dir ninja psutil packaging wheel

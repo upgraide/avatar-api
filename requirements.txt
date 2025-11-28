@@ -46,6 +46,9 @@ wheel
 soundfile
 librosa
 
+# Note: PyTorch 2.5.1+ required for torch.distributed.tensor.experimental
+# Note: xformers 0.0.29.post1 compatible with PyTorch 2.5.1 + CUDA 12.1
+
 # ============================================================================
 # Gradio (optional - only for demo UI, can remove for API-only deployment)
 # ============================================================================
