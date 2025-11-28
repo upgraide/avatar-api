@@ -29,43 +29,43 @@ class ModelManager:
     """
 
     # Model configurations
+    # RunPod Model Store caches models at: /runpod-volume/{org}/{repo}/
     MODELS = {
         "wan2.1-i2v-14b": {
             "repo_id": "Wan-AI/Wan2.1-I2V-14B-480P",
-            "local_dir": "Wan2.1-I2V-14B-480P",
-            "size_gb": 40,
+            "local_dir": "Wan-AI/Wan2.1-I2V-14B-480P",  # RunPod cache path
+            "size_gb": 77,  # Actual size: 77GB (7 shards + encoders)
             "description": "Wan 2.1 Image-to-Video 14B model"
         },
         "chinese-wav2vec2": {
             "repo_id": "TencentGameMate/chinese-wav2vec2-base",
-            "local_dir": "chinese-wav2vec2-base",
-            "size_gb": 1,
+            "local_dir": "TencentGameMate/chinese-wav2vec2-base",  # RunPod cache path
+            "size_gb": 1.5,
             "description": "Chinese Wav2Vec2 audio encoder"
         },
         "infinitetalk": {
             "repo_id": "MeiGen-AI/InfiniteTalk",
-            "local_dir": "InfiniteTalk",
-            "size_gb": 2,
+            "local_dir": "MeiGen-AI/InfiniteTalk",  # RunPod cache path
+            "size_gb": 158,  # Actual size: 158GB (includes quantized variants)
             "description": "InfiniteTalk weights and audio conditioning"
         }
     }
 
-    def __init__(self, storage_path: str = "/runpod-volume/models"):
+    def __init__(self, storage_path: str = "/runpod-volume"):
         """
         Initialize ModelManager.
 
         Args:
-            storage_path: Path to persistent storage directory (default: /runpod-volume/models)
+            storage_path: Path to RunPod Model Store cache (default: /runpod-volume)
+
+        Note: With RunPod Model Store, models are automatically cached at:
+              /runpod-volume/{org}/{repo}/
         """
         self.storage_path = Path(storage_path)
         self.hf_token = os.getenv("HF_TOKEN")
 
-        # Create storage directory if it doesn't exist
-        self.storage_path.mkdir(parents=True, exist_ok=True)
-
-        logger.info(f"ModelManager initialized with storage path: {self.storage_path}")
-        if not self.hf_token:
-            logger.warning("HF_TOKEN not set - public models only")
+        logger.info(f"ModelManager initialized with RunPod Model Store path: {self.storage_path}")
+        logger.info("Models cached by RunPod Model Store - no manual download needed")
 
     def is_model_downloaded(self, model_key: str) -> bool:
         """
@@ -195,10 +195,10 @@ class ModelManager:
 
     def verify_models(self) -> Dict[str, Path]:
         """
-        Verify all required models exist in storage.
+        Verify all required models exist in RunPod Model Store cache.
 
-        This is a runtime check that does NOT download models.
-        Use init_storage.sh to download models before deployment.
+        This is a runtime check that verifies RunPod has cached the models.
+        Models are configured in RunPod Endpoint settings (Model Store).
 
         Returns:
             Dict mapping model keys to their local paths
@@ -207,15 +207,8 @@ class ModelManager:
             RuntimeError: If any required model is missing
         """
         logger.info("="*60)
-        logger.info("VERIFYING MODEL AVAILABILITY")
+        logger.info("VERIFYING RUNPOD MODEL STORE CACHE")
         logger.info("="*60)
-
-        # Check for ready marker
-        ready_marker = self.storage_path / ".storage_ready"
-        if ready_marker.exists():
-            logger.info(f"✓ Storage initialized: {ready_marker.read_text().strip()}")
-        else:
-            logger.warning("⚠ No .storage_ready marker found")
 
         model_paths = {}
         missing_models = []
@@ -227,26 +220,32 @@ class ModelManager:
             # Check if directory exists and has files
             if model_path.exists() and any(model_path.iterdir()):
                 file_count = len(list(model_path.iterdir()))
-                logger.info(f"✓ {config['description']}: {file_count} files")
+                logger.info(f"✓ {config['description']}: {file_count} files at {model_path}")
                 model_paths[model_key] = model_path
             else:
-                logger.error(f"✗ {config['description']}: NOT FOUND")
-                missing_models.append(model_key)
+                logger.error(f"✗ {config['description']}: NOT FOUND at {model_path}")
+                missing_models.append((model_key, config))
 
         if missing_models:
             logger.error("\n" + "="*60)
-            logger.error("MODELS MISSING - STORAGE NOT INITIALIZED")
+            logger.error("MODELS MISSING - RUNPOD MODEL STORE NOT CONFIGURED")
             logger.error("="*60)
-            logger.error(f"\nMissing models: {', '.join(missing_models)}")
+            logger.error(f"\nMissing {len(missing_models)} model(s):")
+            for model_key, config in missing_models:
+                logger.error(f"  - {config['description']} ({config['repo_id']})")
             logger.error("\nTo fix this:")
-            logger.error("  1. SSH into a RunPod pod with persistent volume mounted")
-            logger.error("  2. Set HF_TOKEN environment variable")
-            logger.error("  3. Run: bash /app/init_storage.sh")
+            logger.error("  1. Go to RunPod Console → Your Endpoint → Edit Endpoint")
+            logger.error("  2. Scroll to 'Model (optional)' section")
+            logger.error("  3. Add the following models (one at a time or comma-separated):")
+            for model_key, config in missing_models:
+                logger.error(f"     https://huggingface.co/{config['repo_id']}")
+            logger.error("  4. Save and redeploy endpoint")
+            logger.error("  5. RunPod will automatically cache models on workers")
             logger.error("\nSee docs/DEPLOYMENT.md for detailed instructions")
-            raise RuntimeError(f"{len(missing_models)} required model(s) missing from storage")
+            raise RuntimeError(f"{len(missing_models)} required model(s) not cached by RunPod Model Store")
 
         logger.info("\n" + "="*60)
-        logger.info("✅ ALL MODELS VERIFIED")
+        logger.info("✅ ALL MODELS CACHED BY RUNPOD")
         logger.info("="*60)
 
         return model_paths
@@ -266,27 +265,28 @@ class ModelManager:
 
 def main():
     """
-    CLI entry point for model verification.
+    CLI entry point for RunPod Model Store verification.
 
-    This script is called by startup.sh to verify models exist.
-    It does NOT download models - use init_storage.sh for that.
+    This script is called by startup.sh to verify models are cached by RunPod.
+    Models are configured in RunPod Endpoint settings (not downloaded manually).
 
     Usage: python core/models.py
     """
-    logger.info("Avatar API - Model Verification")
+    logger.info("Avatar API - RunPod Model Store Verification")
     logger.info("="*60)
 
     # Get storage path from environment or use default
-    storage_path = os.getenv("MODEL_STORAGE_PATH", "/runpod-volume/models")
+    # RunPod Model Store caches to /runpod-volume/{org}/{repo}/
+    storage_path = os.getenv("MODEL_STORAGE_PATH", "/runpod-volume")
 
     # Initialize manager
     manager = ModelManager(storage_path)
 
     try:
-        # Verify models exist (does not download)
+        # Verify models are cached by RunPod
         model_paths = manager.verify_models()
 
-        logger.info("\n✓ All models ready!")
+        logger.info("\n✓ All models cached and ready!")
         logger.info("Model paths:")
         for key, path in model_paths.items():
             logger.info(f"  {key}: {path}")

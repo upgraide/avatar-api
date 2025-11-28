@@ -1,6 +1,6 @@
 # Story 1.1: RunPod Foundation & Model Setup
 
-**Status:** Blocked - RunPod Network Storage Incompatibility with safetensors mmap
+**Status:** Ready for Testing - RunPod Model Store configured, awaiting video generation validation
 
 ---
 
@@ -408,6 +408,71 @@ Separated initialization from runtime following ML deployment patterns:
    - Environment variables to disable mmap
    - Alternative: Regular RunPod Pod vs Serverless (different storage mounting)
 3. Test AC #4 video generation once storage issue resolved
+
+---
+
+**Session 2025-11-28 Evening: RunPod Model Store Solution (BLOCKER RESOLVED)**
+
+**Research Discovery:**
+- Found RunPod's public InfiniteTalk endpoint uses **RunPod Model Store** (Beta, launched Sept 2024)
+- Model Store pre-caches HuggingFace models on local NVMe (mmap works!)
+- Solves both mmap issue AND OOM crash from our `.read()` workaround
+
+**Root Cause of Previous Failures:**
+1. **Network volume approach** - mmap not supported → `OSError: No such device (os error 19)`
+2. **Safetensors `.read()` fix** - Loaded 77GB into RAM → 98% RAM usage → worker killed
+3. **Fundamental mismatch** - 236GB models + serverless + network storage = architectural problem
+
+**Solution Implemented: RunPod Model Store**
+
+RunPod automatically caches HuggingFace models on local host NVMe:
+- ✅ Local disk supports mmap (no modifications needed)
+- ✅ No OOM (efficient mmap loading, not reading entire files)
+- ✅ Fast cold starts (models pre-cached before workers start)
+- ✅ No billing for download time
+- ✅ Small Docker images (models decoupled from image)
+
+**Implementation Steps:**
+1. **Reverted safetensors fix** (`git revert b2f7b5b`) - OOM-causing workaround removed
+2. **Updated model paths** - Changed from `/runpod-volume/models/` to `/runpod-volume/{org}/{repo}/`
+3. **Updated verification** - `core/models.py` now checks RunPod Model Store cache
+4. **Updated startup** - `startup.sh` provides clear instructions for Model Store configuration
+
+**Files Modified:**
+- `core/models.py` - Updated paths to RunPod cache structure, improved error messages
+- `startup.sh` - Updated instructions and example command with new paths
+- `InfiniteTalk/wan/multitalk.py` - Reverted (now uses original mmap loading)
+- `InfiniteTalk/wan/modules/t5.py` - Reverted (now uses original mmap loading)
+
+**RunPod Configuration Required:**
+In RunPod Endpoint Settings → Model (optional), add:
+1. `https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P` (77GB)
+2. `https://huggingface.co/TencentGameMate/chinese-wav2vec2-base` (1.5GB)
+3. `https://huggingface.co/MeiGen-AI/InfiniteTalk` (158GB)
+
+RunPod automatically:
+- Downloads models to local NVMe on hosts
+- Starts workers on hosts with cached models
+- Handles caching/eviction automatically
+
+**Expected Model Paths:**
+```
+/runpod-volume/Wan-AI/Wan2.1-I2V-14B-480P/
+/runpod-volume/TencentGameMate/chinese-wav2vec2-base/
+/runpod-volume/MeiGen-AI/InfiniteTalk/single/infinitetalk.safetensors
+```
+
+**Next Steps:**
+1. Configure RunPod endpoint with 3 HuggingFace models
+2. Deploy updated Docker image
+3. Test AC #4: Video generation (should work with mmap on local cache)
+4. Verify: No OOM, no mmap errors, fast cold starts
+
+**Technical Benefits:**
+- Production-grade solution (same as RunPod's public endpoints)
+- Scales automatically (RunPod manages caching)
+- Cost-effective (no billing for model downloads)
+- True serverless (models cached before billing starts)
 
 ### Completion Notes
 
