@@ -32,9 +32,19 @@ WORKDIR /app
 # Copy requirements first for Docker layer caching
 COPY requirements.txt ./
 
-# Install Python dependencies
+# Install Python dependencies per official InfiniteTalk docs
+# 1. PyTorch with CUDA 12.1
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cu121
+
+# 2. xformers with CUDA 12.1
+RUN pip install --no-cache-dir -U xformers==0.0.28 --index-url https://download.pytorch.org/whl/cu121
+
+# 3. flash-attn
+RUN pip install --no-cache-dir flash_attn==2.7.4.post1
+
+# 4. InfiniteTalk dependencies (includes misaki, ninja, psutil, packaging, wheel, soundfile, librosa, etc.)
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY core/ ./core/

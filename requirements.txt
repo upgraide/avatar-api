@@ -2,12 +2,14 @@
 # Combines InfiniteTalk requirements + core utilities
 
 # ============================================================================
-# PyTorch with CUDA 12.1 support (install separately via pip install torch)
+# PyTorch with CUDA 12.1 support (installed via startup.sh)
 # ============================================================================
 # torch==2.4.1+cu121
 # torchvision==0.19.1+cu121
 # torchaudio==2.4.1+cu121
-# Install command: pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cu121
+# xformers==0.0.28+cu121
+# flash-attn==2.7.4.post1
+# Installed via startup.sh with --index-url https://download.pytorch.org/whl/cu121
 
 # ============================================================================
 # InfiniteTalk Core Dependencies
@@ -32,6 +34,17 @@ optimum-quanto==0.2.6
 scenedetect
 moviepy==1.0.3
 decord
+
+# ============================================================================
+# Official InfiniteTalk Additional Dependencies
+# ============================================================================
+misaki[en]
+ninja
+psutil
+packaging
+wheel
+soundfile
+librosa
 
 # ============================================================================
 # Gradio (optional - only for demo UI, can remove for API-only deployment)

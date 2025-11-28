@@ -15,14 +15,8 @@ echo ""
 # Print environment info
 echo "Environment:"
 echo "  Python version: $(python --version)"
-echo "  CUDA available: $(python -c 'import torch; print(torch.cuda.is_available())' 2>/dev/null || echo 'PyTorch not installed yet')"
+echo "  CUDA available: $(python -c 'import torch; print(torch.cuda.is_available())' 2>/dev/null || echo 'ERROR: PyTorch not found')"
 echo "  Storage path: ${MODEL_STORAGE_PATH:-/runpod-volume/models}"
-echo ""
-
-# Install PyTorch with CUDA 12.1 support
-echo "Installing PyTorch with CUDA 12.1..."
-pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cu121 --no-cache-dir
-echo "✓ PyTorch installed"
 echo ""
 
 # Verify models exist (does NOT download)
