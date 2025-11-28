@@ -1,6 +1,7 @@
 """
-Model Download Manager for Avatar API
-Handles downloading and caching of InfiniteTalk models to RunPod persistent storage.
+Model Manager for Avatar API
+Verifies InfiniteTalk models embedded in Docker image are accessible.
+Models are baked into the image at /app/models/ during Docker build.
 """
 
 import os
@@ -22,50 +23,50 @@ logger = logging.getLogger(__name__)
 
 class ModelManager:
     """
-    Manages downloading and caching of ML models for InfiniteTalk.
+    Manages verification of ML models for InfiniteTalk.
 
-    Models are downloaded to RunPod persistent storage (/runpod-volume/models/)
-    to avoid re-downloading on every container restart.
+    Models are embedded in Docker image at /app/models/ during build.
+    This class verifies models exist and are accessible at runtime.
     """
 
     # Model configurations
-    # RunPod Model Store caches models at: /runpod-volume/{org}/{repo}/
+    # Models embedded in Docker image at: /app/models/{local_dir}/
     MODELS = {
         "wan2.1-i2v-14b": {
             "repo_id": "Wan-AI/Wan2.1-I2V-14B-480P",
-            "local_dir": "Wan-AI/Wan2.1-I2V-14B-480P",  # RunPod cache path
+            "local_dir": "Wan2.1-I2V-14B-480P",
             "size_gb": 77,  # Actual size: 77GB (7 shards + encoders)
             "description": "Wan 2.1 Image-to-Video 14B model"
         },
         "chinese-wav2vec2": {
             "repo_id": "TencentGameMate/chinese-wav2vec2-base",
-            "local_dir": "TencentGameMate/chinese-wav2vec2-base",  # RunPod cache path
+            "local_dir": "chinese-wav2vec2-base",
             "size_gb": 1.5,
             "description": "Chinese Wav2Vec2 audio encoder"
         },
         "infinitetalk": {
             "repo_id": "MeiGen-AI/InfiniteTalk",
-            "local_dir": "MeiGen-AI/InfiniteTalk",  # RunPod cache path
+            "local_dir": "InfiniteTalk",
             "size_gb": 158,  # Actual size: 158GB (includes quantized variants)
             "description": "InfiniteTalk weights and audio conditioning"
         }
     }
 
-    def __init__(self, storage_path: str = "/runpod-volume"):
+    def __init__(self, storage_path: str = "/app/models"):
         """
         Initialize ModelManager.
 
         Args:
-            storage_path: Path to RunPod Model Store cache (default: /runpod-volume)
+            storage_path: Path to embedded models directory (default: /app/models)
 
-        Note: With RunPod Model Store, models are automatically cached at:
-              /runpod-volume/{org}/{repo}/
+        Note: Models are embedded in Docker image during build.
+              This manager verifies they exist and are accessible.
         """
         self.storage_path = Path(storage_path)
-        self.hf_token = os.getenv("HF_TOKEN")
+        self.hf_token = os.getenv("HF_TOKEN")  # Not used, but kept for compatibility
 
-        logger.info(f"ModelManager initialized with RunPod Model Store path: {self.storage_path}")
-        logger.info("Models cached by RunPod Model Store - no manual download needed")
+        logger.info(f"ModelManager initialized with embedded models path: {self.storage_path}")
+        logger.info("Models embedded in Docker image - verifying accessibility...")
 
     def is_model_downloaded(self, model_key: str) -> bool:
         """
@@ -195,10 +196,10 @@ class ModelManager:
 
     def verify_models(self) -> Dict[str, Path]:
         """
-        Verify all required models exist in RunPod Model Store cache.
+        Verify all required models exist in embedded storage.
 
-        This is a runtime check that verifies RunPod has cached the models.
-        Models are configured in RunPod Endpoint settings (Model Store).
+        This is a runtime check that verifies models were properly embedded
+        in the Docker image during build.
 
         Returns:
             Dict mapping model keys to their local paths
@@ -207,7 +208,7 @@ class ModelManager:
             RuntimeError: If any required model is missing
         """
         logger.info("="*60)
-        logger.info("VERIFYING RUNPOD MODEL STORE CACHE")
+        logger.info("VERIFYING EMBEDDED MODELS")
         logger.info("="*60)
 
         model_paths = {}
@@ -228,24 +229,22 @@ class ModelManager:
 
         if missing_models:
             logger.error("\n" + "="*60)
-            logger.error("MODELS MISSING - RUNPOD MODEL STORE NOT CONFIGURED")
+            logger.error("MODELS MISSING - DOCKER IMAGE NOT BUILT CORRECTLY")
             logger.error("="*60)
             logger.error(f"\nMissing {len(missing_models)} model(s):")
             for model_key, config in missing_models:
                 logger.error(f"  - {config['description']} ({config['repo_id']})")
-            logger.error("\nTo fix this:")
-            logger.error("  1. Go to RunPod Console → Your Endpoint → Edit Endpoint")
-            logger.error("  2. Scroll to 'Model (optional)' section")
-            logger.error("  3. Add the following models (one at a time or comma-separated):")
+            logger.error("\nThis indicates the Docker image was not built properly.")
+            logger.error("Models should be embedded during Docker build with:")
+            logger.error("  docker build --build-arg HF_TOKEN=your_token -t avatar-api:v1.0 .")
+            logger.error("\nExpected model paths in image:")
             for model_key, config in missing_models:
-                logger.error(f"     https://huggingface.co/{config['repo_id']}")
-            logger.error("  4. Save and redeploy endpoint")
-            logger.error("  5. RunPod will automatically cache models on workers")
-            logger.error("\nSee docs/DEPLOYMENT.md for detailed instructions")
-            raise RuntimeError(f"{len(missing_models)} required model(s) not cached by RunPod Model Store")
+                logger.error(f"  /app/models/{config['local_dir']}/")
+            logger.error("\nSee docs/DEPLOYMENT.md for detailed build instructions")
+            raise RuntimeError(f"{len(missing_models)} required model(s) not found in Docker image")
 
         logger.info("\n" + "="*60)
-        logger.info("✅ ALL MODELS CACHED BY RUNPOD")
+        logger.info("✅ ALL MODELS EMBEDDED AND ACCESSIBLE")
         logger.info("="*60)
 
         return model_paths
@@ -265,19 +264,19 @@ class ModelManager:
 
 def main():
     """
-    CLI entry point for RunPod Model Store verification.
+    CLI entry point for embedded model verification.
 
-    This script is called by startup.sh to verify models are cached by RunPod.
-    Models are configured in RunPod Endpoint settings (not downloaded manually).
+    This script is called by startup.sh to verify models are embedded in the
+    Docker image and accessible at runtime.
 
     Usage: python core/models.py
     """
-    logger.info("Avatar API - RunPod Model Store Verification")
+    logger.info("Avatar API - Embedded Model Verification")
     logger.info("="*60)
 
     # Get storage path from environment or use default
-    # RunPod Model Store caches to /runpod-volume/{org}/{repo}/
-    storage_path = os.getenv("MODEL_STORAGE_PATH", "/runpod-volume")
+    # Models embedded at /app/models/ during Docker build
+    storage_path = os.getenv("MODEL_STORAGE_PATH", "/app/models")
 
     # Initialize manager
     manager = ModelManager(storage_path)
