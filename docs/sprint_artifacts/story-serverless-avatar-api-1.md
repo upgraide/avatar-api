@@ -1,6 +1,6 @@
 # Story 1.1: RunPod Foundation & Model Setup
 
-**Status:** Blocked - Missing Dependencies, AC #4 Validation Pending
+**Status:** Blocked - RunPod Network Storage Incompatibility with safetensors mmap
 
 ---
 
@@ -388,16 +388,26 @@ Separated initialization from runtime following ML deployment patterns:
 - `init_storage.sh` - Added path selection guidance
 - `.env.example` - Documented path differences
 
-**Current Blockers:**
-1. **Missing Dependencies:** `soundfile`, `xformers`, PyTorch 2.5.1+
-2. **AC #4 Not Validated:** Video generation untested (blocked by dependencies)
+**Session 2025-11-28: PyTorch 2.5.1 Upgrade + RunPod Network Storage Issue**
 
-**Next Actions Required:**
-1. Update `requirements.txt`: Add `soundfile`, `xformers`, upgrade PyTorch to 2.5.1
-2. Update `startup.sh`: Change PyTorch install from 2.4.1 → 2.5.1
-3. Rebuild Docker image
-4. Test video generation on serverless worker
-5. Validate AC #4 (video quality, timing)
+**Root Cause Analysis:**
+- InfiniteTalk README specified PyTorch 2.4.1, but xfuser dependency requires `torch.distributed.tensor.experimental` (only in PyTorch 2.5+)
+- Upgraded to PyTorch 2.5.1 + xformers 0.0.29.post1 + all missing dependencies
+- Docker image rebuilt successfully on Hetzner VM, deployed to RunPod
+
+**Current Blocker: safetensors mmap incompatibility with RunPod network storage**
+- Error: `OSError: No such device (os error 19)` when loading .safetensors from `/runpod-volume`
+- Root cause: RunPod network volumes don't support shared memory mapping (mmap) that safetensors uses by default
+- Known issue: https://github.com/huggingface/safetensors/issues/545
+- Models are 236GB, copying to local disk not viable
+
+**Next Actions (for next developer):**
+1. Research permanent fix for safetensors + RunPod network storage (best practice solution)
+2. Options to investigate:
+   - Patch safetensors to use `device="cpu"` on load (avoids mmap)
+   - Environment variables to disable mmap
+   - Alternative: Regular RunPod Pod vs Serverless (different storage mounting)
+3. Test AC #4 video generation once storage issue resolved
 
 ### Completion Notes
 
