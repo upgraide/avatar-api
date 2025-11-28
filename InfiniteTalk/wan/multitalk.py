@@ -34,7 +34,7 @@ from src.vram_management import AutoWrappedQLinear, AutoWrappedLinear, AutoWrapp
 from wan.utils.utils import convert_video_to_h264, extract_specific_frames, get_video_codec
 from wan.wan_lora import WanLoraWrapper
 
-from safetensors.torch import load_file
+from safetensors.torch import load_file, load as safetensors_load
 from optimum.quanto import quantize, freeze, qint8,requantize
 import optimum.quanto.nn.qlinear as qlinear
 
@@ -197,7 +197,11 @@ class InfiniteTalkPipeline:
                 wan_config = json.load(open(os.path.join(checkpoint_dir, "config.json")))
                 self.model = WanModel(weight_init=False,**wan_config)
                 torch_gc()
-            model_state_dict = load_file(quant_dir)
+            # Network storage fix: Read file directly to avoid mmap issues on RunPod volumes
+            try:
+                model_state_dict = safetensors_load(open(quant_dir, 'rb').read())
+            except:
+                model_state_dict = load_file(quant_dir, device='cpu')
             map_json_path = os.path.join(quant_dir.replace('safetensors', 'json'))
             self.model.init_freqs()
             with open(map_json_path, "r") as f:
@@ -219,7 +223,11 @@ class InfiniteTalkPipeline:
                                 f"{infinitetalk_dir}"]
                 merged_state_dict = {}
                 for weight_file in weight_files:
-                    sd = load_file(weight_file)
+                    # Network storage fix: Read file directly to avoid mmap issues on RunPod volumes
+                    try:
+                        sd = safetensors_load(open(weight_file, 'rb').read())
+                    except:
+                        sd = load_file(weight_file, device='cpu')
                     merged_state_dict.update(sd)
                 self.model.load_state_dict(merged_state_dict)
                 

@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from safetensors.torch import load_file
+from safetensors.torch import load_file, load as safetensors_load
 from optimum.quanto import quantize, freeze, qint8,requantize
 
 from .tokenizers import HuggingfaceTokenizer
@@ -504,7 +504,12 @@ class T5EncoderModel:
                     dtype=dtype,
                     device=torch.device('meta'))
             logging.info(f'Loading quantized T5 from {os.path.join(quant_dir, f"t5_{quant}.safetensors")}')
-            model_state_dict = load_file(os.path.join(quant_dir, f"t5_{quant}.safetensors"))
+            # Network storage fix: Read file directly to avoid mmap issues on RunPod volumes
+            safetensors_path = os.path.join(quant_dir, f"t5_{quant}.safetensors")
+            try:
+                model_state_dict = safetensors_load(open(safetensors_path, 'rb').read())
+            except:
+                model_state_dict = load_file(safetensors_path, device='cpu')
             with open(os.path.join(quant_dir, f"t5_map_{quant}.json"), "r") as f:
                 quantization_map = json.load(f)
             requantize(model, model_state_dict, quantization_map, device='cpu')
