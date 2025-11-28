@@ -1,6 +1,6 @@
 # Story 1.1: RunPod Foundation & Model Setup
 
-**Status:** In Progress - Architecture Fixed, Awaiting Deployment Validation
+**Status:** Blocked - Missing Dependencies, AC #4 Validation Pending
 
 ---
 
@@ -339,6 +339,66 @@ Separated initialization from runtime following ML deployment patterns:
 3. Re-deploy serverless endpoint
 4. Validate <60s cold start and video generation (AC #2-4)
 
+---
+
+**Session 2025-11-27 Evening: Storage Init + Path Discovery + Missing Dependencies**
+
+**Context:** First deployment attempt revealed multiple critical issues.
+
+**Issues Discovered:**
+
+1. **Model Sizes Drastically Underestimated**
+   - **Expected:** 43GB total (Wan: 40GB, Wav2Vec: 1GB, InfiniteTalk: 2GB)
+   - **Actual:** 236GB total (Wan: 77GB, InfiniteTalk: 158GB, Wav2Vec: 1.5GB)
+   - **Root Cause:** InfiniteTalk HuggingFace repo contains multiple model variants:
+     - 6x quantized models (fp8, int8) @ 19GB each = 114GB
+     - ComfyUI versions: 5GB
+     - Multi-person models: 9GB
+     - Single-person models
+   - **Solution:** Created 500GB volume (was 50GB → 250GB → 500GB)
+
+2. **RunPod Path Discrepancy: Pods vs Serverless**
+   - **Discovery:** Regular Pods mount volumes at `/workspace`, Serverless mounts at `/runpod-volume` (FIXED by RunPod)
+   - **Impact:** Init script ran on pod (created models at `/workspace/models`), but serverless couldn't find them
+   - **Solution:**
+     - Reverted all defaults to `/runpod-volume/models` (serverless compatibility)
+     - Documented path differences in init_storage.sh
+     - Use `MODEL_STORAGE_PATH=/workspace/models` env var for pod init
+
+3. **InfiniteTalk Source Code Missing from Container**
+   - **Root Cause:** InfiniteTalk was a git submodule (had own `.git` directory)
+   - **Impact:** Git didn't track InfiniteTalk files → Docker build got empty directory
+   - **Solution:**
+     - Removed `InfiniteTalk/.git`
+     - Added all 64 InfiniteTalk source files to repository (15,676 lines, 266MB)
+     - Committed to main repo
+
+4. **Missing Python Dependencies**
+   - **InfiniteTalk requirements.txt incomplete:**
+     - Missing: `soundfile`, `xformers`
+     - PyTorch version too old: 2.4.1 → needs 2.5.1+ for `torch.distributed.tensor.experimental`
+   - **Impact:** `generate_infinitetalk.py` crashes on import
+   - **Status:** BLOCKED - needs requirements.txt update + image rebuild
+
+**Files Modified (Session 2):**
+- `InfiniteTalk/*` - Added 64 source code files (was git submodule)
+- `Dockerfile` - Reverted paths to `/runpod-volume` (serverless compatibility)
+- `core/models.py` - Reverted default paths
+- `startup.sh` - Reverted paths, added Pod vs Serverless documentation
+- `init_storage.sh` - Added path selection guidance
+- `.env.example` - Documented path differences
+
+**Current Blockers:**
+1. **Missing Dependencies:** `soundfile`, `xformers`, PyTorch 2.5.1+
+2. **AC #4 Not Validated:** Video generation untested (blocked by dependencies)
+
+**Next Actions Required:**
+1. Update `requirements.txt`: Add `soundfile`, `xformers`, upgrade PyTorch to 2.5.1
+2. Update `startup.sh`: Change PyTorch install from 2.4.1 → 2.5.1
+3. Rebuild Docker image
+4. Test video generation on serverless worker
+5. Validate AC #4 (video quality, timing)
+
 ### Completion Notes
 
 **Implementation Summary:**
@@ -354,20 +414,20 @@ Story 1.1 establishes the foundational infrastructure for the Avatar API by cont
    - Proper layer caching for faster rebuilds
 
 2. **Model Management** (core/models.py)
-   - ModelManager class with intelligent caching
-   - Downloads 3 models from HuggingFace (~43GB total):
-     - Wan 2.1 I2V 14B (~40GB)
-     - chinese-wav2vec2-base (~1GB)
-     - InfiniteTalk weights (~2GB)
+   - ModelManager class with verify_models() method (runtime verification only)
+   - Init script downloads 3 model repos from HuggingFace (~236GB actual):
+     - Wan 2.1 I2V 14B: 77GB (7 shards + T5 encoder + CLIP + VAE)
+     - chinese-wav2vec2-base: 1.5GB
+     - InfiniteTalk: 158GB (6 quantized variants + multi/single models + ComfyUI)
    - Retry logic with exponential backoff (max 3 attempts)
    - Detailed progress logging for observability
-   - Checks existing models to avoid re-downloads
+   - Separate init vs runtime pattern (industry best practice)
 
 3. **Container Startup** (startup.sh)
-   - Installs PyTorch with CUDA 12.1 at runtime
-   - Calls ModelManager to ensure models are downloaded
+   - Installs PyTorch 2.4.1 with CUDA 12.1 at runtime (needs upgrade to 2.5.1)
+   - Verifies models exist (does NOT download)
+   - Fails gracefully with clear errors if storage not initialized
    - Keeps container running for manual testing
-   - Will be replaced with API server in Story 1.2
 
 4. **Configuration** (.env.example)
    - HF_TOKEN for authenticated model downloads
@@ -381,49 +441,60 @@ Story 1.1 establishes the foundational infrastructure for the Avatar API by cont
 
 **Technical Approach:**
 
-- **Persistent Storage Pattern:** Models download once to `/runpod-volume/models/`, persist across restarts
-- **First startup:** ~5-10 min (model download)
-- **Subsequent startups:** <60s (cached models)
-- **Cost:** $4.30/month storage + $0.00019/second GPU usage
+- **Persistent Storage Pattern:** One-time init downloads models to volume, workers verify at startup
+- **Storage Requirements:** 500GB volume (~236GB models + headroom)
+- **Init time:** 10-15 minutes (one-time, run on temp pod)
+- **Worker startup:** <60s (model verification only, no downloads)
+- **Cost:** ~$43/month for 500GB storage + $0.00019/second GPU usage (L40S)
 
 **Next Steps - Manual Deployment Required:**
 
 **✅ Completed:**
-- Code pushed to GitHub: https://github.com/upgraide/avatar-api
-- RunPod persistent volume created: `fx8d814g9m` (50GB)
-- Repository made public for RunPod access
-- Architecture refactored: Init/Runtime separation implemented
+- Docker image built with InfiniteTalk source code: `upgraide/avatar-api:latest`
+- 500GB RunPod volume initialized with models (236GB used)
+- Models downloaded to persistent storage successfully:
+  - Wan2.1-I2V-14B-480P: 77GB ✓
+  - chinese-wav2vec2-base: 1.5GB ✓
+  - InfiniteTalk: 158GB ✓
+- RunPod Serverless endpoint deployed (avatar-api-production)
+- Volume attached to serverless endpoint at `/runpod-volume`
+- Worker starts and finds models correctly
 
-**⏳ Remaining (Next Dev Session):**
+**❌ Blocked:**
+- **Missing Python Dependencies:** `soundfile`, `xformers`
+- **PyTorch Version:** 2.4.1 installed, needs 2.5.1+ for xfuser
+- **AC #4 Not Validated:** Cannot test video generation until dependencies fixed
 
-Phase 3 & 4 require container rebuild, storage init, and deployment:
+**⏳ Next Actions (Next Dev Session):**
 
-1. **Rebuild Docker Image** (with new architecture):
-   - Option A: Trigger GitHub Actions workflow (recommended)
-   - Option B: Build locally on x86 machine
-   - Push to Docker Hub: `upgraide/avatar-api:v1.0`
+1. **Fix Dependencies:**
+   - Update `requirements.txt`: Add `soundfile`, `xformers`
+   - Update `startup.sh`: Change PyTorch version 2.4.1 → 2.5.1
+   - Rebuild Docker image (GitHub Actions)
 
-2. **Initialize Persistent Storage** (ONE-TIME):
-   - Create temporary RunPod pod with volume `fx8d814g9m` attached
-   - SSH into pod and run `init_storage.sh`
-   - Set HF_TOKEN and run model downloads (~10-15 min)
-   - Verify models downloaded (should be ~43GB total)
-   - Terminate temp pod
+2. **Validate AC #4 (E2E Video Generation):**
+   - SSH into serverless worker
+   - Run test generation:
+     ```bash
+     cd /app/InfiniteTalk
+     python generate_infinitetalk.py \
+       --task infinitetalk-14B \
+       --size infinitetalk-720 \
+       --ckpt_dir /runpod-volume/models/Wan2.1-I2V-14B-480P \
+       --infinitetalk_dir /runpod-volume/models/InfiniteTalk \
+       --wav2vec_dir /runpod-volume/models/chinese-wav2vec2-base \
+       --input_json examples/single_example_image.json \
+       --sample_steps 40 \
+       --save_file /tmp/test_output
+     ```
+   - Verify video quality (720p, lip sync)
+   - Measure generation time (expect 30-120s)
+   - Download and review test_output.mp4
 
-3. **Deploy to RunPod Serverless:**
-   - Navigate to: https://www.runpod.io/console/serverless
-   - Create endpoint with L40S GPU (48GB VRAM)
-   - Container: `upgraide/avatar-api:v1.0`
-   - Attach volume: `fx8d814g9m` at `/runpod-volume`
-   - Set env var: `MODEL_STORAGE_PATH=/runpod-volume/models`
-   - Configure: Min=0, Max=5, Timeout=600s
-
-4. **Validate End-to-End:**
-   - Trigger worker startup (<60s cold start expected)
-   - SSH into container
-   - Test InfiniteTalk generation (see docs/DEPLOYMENT.md Step 5)
-   - Verify 720p output and 30-120s generation time
-   - Test cold start performance (<60s with cached models)
+3. **Complete Story:**
+   - Mark AC #4 as validated
+   - Update story status to "Done"
+   - Commit final story state
 
 **Why Blocked (Previous):**
 - Docker build failed on ARM Mac (limited RAM: 7.6GB)
