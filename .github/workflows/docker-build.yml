@@ -1,10 +1,17 @@
-name: Build and Push Docker Image
+name: Build and Push Pod Docker Image
 
 on:
   push:
     branches:
       - main
       - master
+    paths:
+      - 'Dockerfile.pod'
+      - 'requirements.txt'
+      - 'core/**'
+      - 'api.py'
+      - 'startup_pod.sh'
+      - '.github/workflows/docker-build.yml'
   workflow_dispatch:  # Allow manual triggering
     inputs:
       tag:
@@ -13,7 +20,7 @@ on:
         default: 'v1.0'
 
 env:
-  DOCKER_IMAGE: upgraide/avatar-api
+  DOCKER_IMAGE: upgraide/avatar-api-pod
   DEFAULT_TAG: v1.0
 
 jobs:
@@ -46,6 +53,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: Dockerfile.pod
           platforms: linux/amd64  # x86_64 architecture for RunPod
           push: true
           tags: |
@@ -56,7 +64,7 @@ jobs:
 
       - name: Build summary
         run: |
-          echo "### Docker Build Successful :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "### Pod Docker Build Successful :rocket:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Image:** \`${{ env.DOCKER_IMAGE }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Tags:**" >> $GITHUB_STEP_SUMMARY
@@ -64,9 +72,11 @@ jobs:
           echo "- \`latest\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Platform:** linux/amd64 (x86_64)" >> $GITHUB_STEP_SUMMARY
+          echo "**Type:** Lightweight Pod image (~5GB, models external)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Next Steps:**" >> $GITHUB_STEP_SUMMARY
-          echo "1. Deploy to RunPod Serverless" >> $GITHUB_STEP_SUMMARY
-          echo "2. Configure endpoint with image: \`${{ env.DOCKER_IMAGE }}:${{ steps.tag.outputs.TAG }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "3. Attach persistent volume \`fx8d814g9m\` at \`/runpod-volume\`" >> $GITHUB_STEP_SUMMARY
-          echo "4. Set environment variables (HF_TOKEN, etc.)" >> $GITHUB_STEP_SUMMARY
+          echo "1. Create RunPod Pod with L40S GPU" >> $GITHUB_STEP_SUMMARY
+          echo "2. Download models to /workspace/models (~236GB, one-time)" >> $GITHUB_STEP_SUMMARY
+          echo "3. Run container: \`docker run --gpus all -v /workspace/models:/workspace/models ${{ env.DOCKER_IMAGE }}:${{ steps.tag.outputs.TAG }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "See docs/POD_DEPLOYMENT.md for full instructions." >> $GITHUB_STEP_SUMMARY

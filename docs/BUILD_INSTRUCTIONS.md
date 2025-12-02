@@ -2,6 +2,8 @@
 
 This guide explains how to build the Avatar API Docker image with 236GB of models embedded for production deployment on RunPod Serverless.
 
+> **IMPORTANT:** Before building, read [DOCKER_BUILD_LESSONS_LEARNED.md](./DOCKER_BUILD_LESSONS_LEARNED.md) to understand common pitfalls and the correct storage configuration. Building this 241GB image requires specific storage architecture to avoid failures.
+
 ## Overview
 
 **Architecture:** Embed all 3 HuggingFace models directly in the Docker image (RunPod best practice for production)

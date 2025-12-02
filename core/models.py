@@ -1,7 +1,10 @@
 """
 Model Manager for Avatar API
-Verifies InfiniteTalk models embedded in Docker image are accessible.
-Models are baked into the image at /app/models/ during Docker build.
+Verifies InfiniteTalk models are accessible.
+
+Supports two deployment modes:
+- Pod: Models in /workspace/models (local NVMe, mmap works)
+- Serverless: Models embedded in Docker image at /app/models
 """
 
 import os
@@ -52,21 +55,26 @@ class ModelManager:
         }
     }
 
-    def __init__(self, storage_path: str = "/app/models"):
+    def __init__(self, storage_path: str = None):
         """
         Initialize ModelManager.
 
         Args:
-            storage_path: Path to embedded models directory (default: /app/models)
-
-        Note: Models are embedded in Docker image during build.
-              This manager verifies they exist and are accessible.
+            storage_path: Path to models directory. Auto-detected if not specified:
+                - /workspace/models (Pod with local NVMe)
+                - /app/models (Serverless with embedded models)
         """
-        self.storage_path = Path(storage_path)
-        self.hf_token = os.getenv("HF_TOKEN")  # Not used, but kept for compatibility
+        if storage_path is None:
+            # Auto-detect: Pod uses /workspace, Serverless uses /app
+            if os.path.exists("/workspace/models"):
+                storage_path = "/workspace/models"
+            else:
+                storage_path = os.getenv("MODEL_STORAGE_PATH", "/app/models")
 
-        logger.info(f"ModelManager initialized with embedded models path: {self.storage_path}")
-        logger.info("Models embedded in Docker image - verifying accessibility...")
+        self.storage_path = Path(storage_path)
+        self.hf_token = os.getenv("HF_TOKEN")
+
+        logger.info(f"ModelManager initialized with models path: {self.storage_path}")
 
     def is_model_downloaded(self, model_key: str) -> bool:
         """
@@ -229,22 +237,23 @@ class ModelManager:
 
         if missing_models:
             logger.error("\n" + "="*60)
-            logger.error("MODELS MISSING - DOCKER IMAGE NOT BUILT CORRECTLY")
+            logger.error("MODELS MISSING")
             logger.error("="*60)
             logger.error(f"\nMissing {len(missing_models)} model(s):")
             for model_key, config in missing_models:
                 logger.error(f"  - {config['description']} ({config['repo_id']})")
-            logger.error("\nThis indicates the Docker image was not built properly.")
-            logger.error("Models should be embedded during Docker build with:")
-            logger.error("  docker build --build-arg HF_TOKEN=your_token -t avatar-api:v1.0 .")
-            logger.error("\nExpected model paths in image:")
+
+            logger.error(f"\nModels not found at: {self.storage_path}")
+            logger.error("\nTo download models, run:")
+            logger.error("  pip install huggingface-hub")
             for model_key, config in missing_models:
-                logger.error(f"  /app/models/{config['local_dir']}/")
-            logger.error("\nSee docs/DEPLOYMENT.md for detailed build instructions")
-            raise RuntimeError(f"{len(missing_models)} required model(s) not found in Docker image")
+                logger.error(f"  huggingface-cli download {config['repo_id']} --local-dir {self.storage_path}/{config['local_dir']}")
+
+            logger.error("\nSee docs/POD_DEPLOYMENT.md for detailed instructions")
+            raise RuntimeError(f"{len(missing_models)} required model(s) not found")
 
         logger.info("\n" + "="*60)
-        logger.info("✅ ALL MODELS EMBEDDED AND ACCESSIBLE")
+        logger.info("✅ ALL MODELS FOUND AND ACCESSIBLE")
         logger.info("="*60)
 
         return model_paths
@@ -264,28 +273,24 @@ class ModelManager:
 
 def main():
     """
-    CLI entry point for embedded model verification.
+    CLI entry point for model verification.
 
-    This script is called by startup.sh to verify models are embedded in the
-    Docker image and accessible at runtime.
+    This script is called by startup.sh to verify models are accessible.
+    Auto-detects Pod vs Serverless deployment.
 
     Usage: python core/models.py
     """
-    logger.info("Avatar API - Embedded Model Verification")
+    logger.info("Avatar API - Model Verification")
     logger.info("="*60)
 
-    # Get storage path from environment or use default
-    # Models embedded at /app/models/ during Docker build
-    storage_path = os.getenv("MODEL_STORAGE_PATH", "/app/models")
-
-    # Initialize manager
-    manager = ModelManager(storage_path)
+    # Initialize manager (auto-detects path)
+    manager = ModelManager()
 
     try:
-        # Verify models are cached by RunPod
+        # Verify models exist
         model_paths = manager.verify_models()
 
-        logger.info("\n✓ All models cached and ready!")
+        logger.info("\n✓ All models found and ready!")
         logger.info("Model paths:")
         for key, path in model_paths.items():
             logger.info(f"  {key}: {path}")

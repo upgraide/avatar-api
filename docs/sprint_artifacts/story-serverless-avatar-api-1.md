@@ -1,6 +1,6 @@
 # Story 1.1: RunPod Foundation & Model Setup
 
-**Status:** Ready for Testing - RunPod Model Store configured, awaiting video generation validation
+**Status:** Architecture Pivot - Switching from Serverless to Pod-first approach (2025-11-29)
 
 ---
 
@@ -473,6 +473,149 @@ RunPod automatically:
 - Scales automatically (RunPod manages caching)
 - Cost-effective (no billing for model downloads)
 - True serverless (models cached before billing starts)
+
+---
+
+**Session 2025-11-29: Architecture Pivot - Pod-First Strategy**
+
+**Context:** After 2+ days of fighting serverless infrastructure issues, conducted architecture review to find pragmatic path forward.
+
+**Problems Encountered with Serverless Approach:**
+
+| Approach | Issue |
+|----------|-------|
+| Embedded models in Docker | 241GB image = out of storage, hours to build/push/pull |
+| Network volume + mmap | `OSError: No such device (os error 19)` - mmap not supported on NFS |
+| Network volume + `device="cpu"` | OOM loading 77GB+ models into RAM |
+| RunPod Model Store | Only supports 1 model, we need 3 |
+| Copy to local at startup | 10+ min cold start (copying 80GB) |
+
+**Root Cause Analysis:**
+
+The fundamental issue is **236GB of models + serverless + network storage = architectural mismatch**.
+
+Serverless is optimized for:
+- Small containers (<5GB)
+- Fast cold starts (<60s)
+- Stateless workloads
+
+InfiniteTalk requires:
+- 80GB+ models loaded via mmap
+- Local NVMe storage (mmap-compatible)
+- Persistent model state
+
+**Decision: Pod-First for Initial Phase**
+
+Given expected volume (<10 videos/day in first weeks), serverless complexity is not justified.
+
+**New Architecture:**
+
+```
+Phase 1 (Weeks 1-4): RunPod Pod
+├── L40S GPU (48GB VRAM)
+├── 100GB local disk
+├── Models on local NVMe (mmap works)
+├── FastAPI + InfiniteTalk direct
+├── Start/stop manually or via API
+└── Cost: ~$2-3/day at low volume
+
+Phase 2 (When volume grows): Re-evaluate Serverless
+├── Option A: Accept 10min cold starts
+├── Option B: Use quantized GGUF models (~50GB)
+├── Option C: Use ComfyUI backend (like working templates)
+└── Option D: Third-party API (WaveSpeed, fal.ai)
+```
+
+**Benefits of Pod Approach:**
+
+| Aspect | Serverless | Pod |
+|--------|------------|-----|
+| Cold start | 10+ min | None |
+| mmap support | ❌ | ✅ |
+| Setup complexity | High | Low |
+| Debugging | Hard | Easy (SSH) |
+| Cost at 5 videos/day | ~$0.20 + headaches | ~$2-3/day |
+
+**Implementation Plan:**
+
+1. **Create L40S Pod** on RunPod with PyTorch 2.4.1 template
+2. **Clone InfiniteTalk** directly (no Docker needed initially)
+3. **Download models once** to local disk (~15 min)
+4. **Run inference directly** via `generate_infinitetalk.py`
+5. **Add FastAPI wrapper** for API access with:
+   - API key authentication
+   - File upload handling
+   - HTTPS via RunPod proxy
+6. **Start/stop pod** based on demand
+
+**Setup Commands:**
+
+```bash
+# On RunPod Pod (one-time setup)
+git clone https://github.com/MeiGen-AI/InfiniteTalk.git
+cd InfiniteTalk
+pip install -r requirements.txt
+
+# Download models (~15 min)
+huggingface-cli download Wan-AI/Wan2.1-I2V-14B-480P --local-dir ./weights/Wan2.1-I2V-14B-480P
+huggingface-cli download TencentGameMate/chinese-wav2vec2-base --local-dir ./weights/chinese-wav2vec2-base
+huggingface-cli download MeiGen-AI/InfiniteTalk --local-dir ./weights/InfiniteTalk
+
+# Test generation
+python generate_infinitetalk.py \
+  --ckpt_dir weights/Wan2.1-I2V-14B-480P \
+  --wav2vec_dir weights/chinese-wav2vec2-base \
+  --infinitetalk_dir weights/InfiniteTalk/single/infinitetalk.safetensors \
+  --input_json examples/single_example_image.json \
+  --size infinitetalk-720 \
+  --sample_steps 40 \
+  --mode streaming \
+  --save_file output
+```
+
+**Cost Analysis:**
+
+| Scenario | Serverless | Pod (on-demand) |
+|----------|------------|-----------------|
+| 5 videos/day, 2hr active | $0.20 + cold starts | $1.38 |
+| 10 videos/day, 3hr active | $0.40 + cold starts | $2.07 |
+| Break-even point | — | ~20 videos/day |
+
+**Security for Pod API:**
+
+- HTTPS via RunPod proxy (`https://{POD_ID}-8000.proxy.runpod.net`)
+- API key authentication in header
+- File type/size validation
+- No credentials in code
+
+**Files to Create:**
+
+- `api.py` - FastAPI wrapper with auth and file handling
+- `docs/POD_DEPLOYMENT.md` - Pod-specific setup guide
+
+**Story Impact:**
+
+- **AC #2 Modified:** Deploy to RunPod Pod (not Serverless) for initial phase
+- **AC #3 Simplified:** Models on local disk, no persistent volume complexity
+- **AC #4 Unchanged:** Video generation validation still required
+- **Serverless deferred:** Will revisit when volume justifies complexity
+
+**Key Learnings:**
+
+1. **Start simple, scale later** - Pod is simpler for low volume
+2. **mmap is non-negotiable** - safetensors requires local storage
+3. **236GB models ≠ serverless** - fundamental architectural mismatch
+4. **Working > Perfect** - Get unblocked, iterate later
+
+**Next Steps:**
+
+1. Create RunPod Pod with L40S GPU
+2. Run setup commands above
+3. Validate video generation works (AC #4)
+4. Add FastAPI wrapper for API access
+5. Document Pod deployment process
+
+---
 
 ### Completion Notes
 
